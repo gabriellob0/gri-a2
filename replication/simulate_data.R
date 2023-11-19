@@ -68,6 +68,7 @@ for (i in 1:1000) {
 
 final <- population |>
   bind_cols(optimal_h) |>
-  rename(house = 3)
+  rename(house = 3) |>
+  left_join(unique(select(houses, house, location)))
 
-#write_csv(final, "simulated_data.csv")
+write_csv(final, "simulated_data.csv")
