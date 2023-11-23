@@ -46,13 +46,6 @@ stage1 <- lookup_merged |>
     OAXXCD = if_else(CHG11 == "M" & CHG21 == "S", OA11CD, OAXXCD)
   )
 
-stage1 |>
-  filter(is.na(OAXXCD)) |>
-  select(CHG11, CHG21) |>
-  group_by(CHG11, CHG21) |>
-  summarise(n = n()) |>
-  print(n = Inf)
-
 
 #stage 2 ----
 match_by_centroid <- function(lookup_df) {
@@ -132,10 +125,6 @@ find_recursive_connections <- function(lookup_df) {
   return(df3)
 }
 
-clean_lookups <- find_recursive_connections(stage2)
-
-
-
 frc_dt_version <- function(lookup_df) {
   
   # Convert df3 to a data.table
@@ -170,8 +159,7 @@ frc_dt_version <- function(lookup_df) {
   return(df3)
 }
 
-clean_fast <- frc_dt_version(stage2)
-all.equal(clean_fast, clean_lookups)
+clean_lookups <- frc_dt_version(stage2)
 
 
 #recoding ----
@@ -296,16 +284,64 @@ map <- st_read("https://www.dropbox.com/s/2ffk5mwezyyjzre/Output_Areas_%28Decemb
     by = join_by(OA21CD)
   )
 
-
 map_agg <- map |>
   select(OAXXCD) |>
   aggregate(by = list(map$OAXXCD), FUN = length) |>
   rename(OAXXCD = 1, nOA21 = 2) |>
   left_join(fitted_oas, by = join_by(OAXXCD))
 
-
-#maps ----
 map_agg |>
   filter(RGN21NM == "London") |>
   ggplot() +
   geom_sf()
+
+
+#census counts ----
+census_urls <- lst(
+  y01 = "https://www.dropbox.com/s/xd256vgc98qvtct/ethnicity2001.csv?dl=1",
+  y21 = "https://www.dropbox.com/s/5b4nm5a6wrtwjcv/ethnicity2021.csv?dl=1"
+)
+
+census_raw <- census_urls |>
+  map(read_csv)
+
+census_01 <- census_raw$y01 |>
+  left_join(
+    recoded |>
+      select(OA01CD, OAXXCD) |>
+      unique(na.rm = TRUE) |>
+      arrange(OA01CD),
+    by = join_by(OA01CD)
+  ) |>
+  group_by(OAXXCD) |>
+  summarise(across(where(is.numeric), sum))
+
+census_21 <- census_raw$y21 |>
+  left_join(
+    recoded |>
+      select(OA21CD, OAXXCD) |>
+      unique(na.rm = TRUE) |>
+      arrange(OA21CD),
+    by = join_by(OA21CD)
+  ) |>
+  group_by(OAXXCD) |>
+  summarise(across(where(is.numeric), sum))
+
+map |>
+  left_join(fitted_oas, by = join_by(OAXXCD)) |>
+  filter(RGN21NM == "London") |>
+  inner_join(census_01 |>
+               select(OAXXCD, WBRI.01),
+             by = "OAXXCD") |>
+  inner_join(census_21 |>
+               select(OAXXCD, WBRI.21),
+             by = "OAXXCD") |>
+  mutate(PCTCHG = (WBRI.21 - WBRI.01) / WBRI.01 * 100) |>
+  mutate(PCTCHG = sign(PCTCHG) * sqrt(abs(PCTCHG))) |>
+  ggplot() +
+  geom_sf(aes(fill = PCTCHG), col = "transparent") +
+  scale_fill_gradient2("Sq root of PCTCHG", low = "dark blue",
+                       mid = "white",
+                       high = "dark red", midpoint = 0) +
+  ggtitle("Percentage change in White British population, 2001-11") +
+  theme_dark()
